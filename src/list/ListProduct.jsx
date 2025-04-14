@@ -9,50 +9,53 @@ const ListProduct = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        
-        // Fetch products
-        const productsResponse = await axios.get('https://pos.cansyell.com/api/products');
-        
-        // Determine where the products array is in the response
-        let productsData = [];
-        if (Array.isArray(productsResponse.data)) {
-          productsData = productsResponse.data;
-        } else if (productsResponse.data && Array.isArray(productsResponse.data.data)) {
-          productsData = productsResponse.data.data;
-        } else if (productsResponse.data && Array.isArray(productsResponse.data.products)) {
-          productsData = productsResponse.data.products;
-        } else {
-          console.error('Unexpected API response format:', productsResponse.data);
-          setError('Unexpected data format from API');
-        }
-        
-        setProducts(productsData);
-        
-        // Fetch categories for the form
-        const categoriesResponse = await axios.get('https://pos.cansyell.com/api/categories');
-        let categoriesData = [];
-        if (categoriesResponse.data && Array.isArray(categoriesResponse.data.data)) {
-          categoriesData = categoriesResponse.data.data;
-        } else if (Array.isArray(categoriesResponse.data)) {
-          categoriesData = categoriesResponse.data;
-        }
-        setCategories(categoriesData);
-        
-      } catch (err) {
-        setError('Failed to fetch data. Please try again later.');
-        console.error('Error fetching data:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchData();
   }, []);
+
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch products
+      const productsResponse = await axios.get('https://pos.cansyell.com/api/products');
+      
+      // Determine where the products array is in the response
+      let productsData = [];
+      if (Array.isArray(productsResponse.data)) {
+        productsData = productsResponse.data;
+      } else if (productsResponse.data && Array.isArray(productsResponse.data.data)) {
+        productsData = productsResponse.data.data;
+      } else if (productsResponse.data && Array.isArray(productsResponse.data.products)) {
+        productsData = productsResponse.data.products;
+      } else {
+        console.error('Unexpected API response format:', productsResponse.data);
+        setError('Unexpected data format from API');
+      }
+      
+      setProducts(productsData);
+      
+      // Fetch categories for the form
+      const categoriesResponse = await axios.get('https://pos.cansyell.com/api/categories');
+      let categoriesData = [];
+      if (categoriesResponse.data && Array.isArray(categoriesResponse.data.data)) {
+        categoriesData = categoriesResponse.data.data;
+      } else if (Array.isArray(categoriesResponse.data)) {
+        categoriesData = categoriesResponse.data;
+      }
+      setCategories(categoriesData);
+      
+    } catch (err) {
+      setError('Failed to fetch data. Please try again later.');
+      console.error('Error fetching data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Format price function that handles different data types
   const formatPrice = (price) => {
@@ -101,6 +104,47 @@ const ListProduct = () => {
     setShowForm(true);
   };
 
+  // Confirm delete dialog for a product
+  const confirmDelete = (product) => {
+    setDeleteConfirm(product);
+  };
+
+  // Cancel delete operation
+  const cancelDelete = () => {
+    setDeleteConfirm(null);
+    setDeleteError('');
+  };
+
+  // Execute delete operation
+  const executeDelete = async () => {
+    if (!deleteConfirm) return;
+    
+    setIsDeleting(true);
+    setDeleteError('');
+    
+    try {
+      await axios.delete(`https://pos.cansyell.com/api/products/${deleteConfirm.id}`);
+      
+      // Remove product from state
+      setProducts(products.filter(product => product.id !== deleteConfirm.id));
+      
+      // Close confirmation dialog
+      setDeleteConfirm(null);
+    } catch (err) {
+      console.error('Error deleting product:', err);
+      
+      // Extract error message from response if available
+      let errorMessage = 'Failed to delete product. Please try again.';
+      if (err.response && err.response.data && err.response.data.message) {
+        errorMessage = err.response.data.message;
+      }
+      
+      setDeleteError(errorMessage);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -145,12 +189,49 @@ const ListProduct = () => {
         />
       )}
       
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50">
+          <div className="relative bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 className="text-xl font-semibold text-gray-900 mb-4">
+              Confirm Delete
+            </h3>
+            <p className="mb-4">
+              Are you sure you want to delete the product "{deleteConfirm.name}"? This action cannot be undone.
+            </p>
+            
+            {deleteError && (
+              <div className="mb-4 p-3 bg-red-100 border-l-4 border-red-500 text-red-700">
+                <p>{deleteError}</p>
+              </div>
+            )}
+            
+            <div className="flex justify-end">
+              <button
+                onClick={cancelDelete}
+                className="mr-2 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeDelete}
+                className="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+                disabled={isDeleting}
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      
       <div className="overflow-x-auto bg-white shadow-md rounded-lg">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                ID
+                No
               </th>
               <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Image
@@ -177,10 +258,10 @@ const ListProduct = () => {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {products && products.length > 0 ? (
-              products.map((product) => (
+              products.map((product, index) => (
                 <tr key={product.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {product.id}
+                    {index + 1}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {product.image_path && (
@@ -188,6 +269,10 @@ const ListProduct = () => {
                         src={`https://pos.cansyell.com/storage/${product.image_path}`}
                         alt={product.name}
                         className="h-12 w-12 object-cover rounded"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = "https://via.placeholder.com/150?text=No+Image";
+                        }}
                       />
                     )}
                   </td>
@@ -216,11 +301,8 @@ const ListProduct = () => {
                       Edit
                     </button>
                     <button
+                      onClick={() => confirmDelete(product)}
                       className="text-red-600 hover:text-red-900"
-                      onClick={() => {
-                        // Handle delete functionality here
-                        console.log('Delete product:', product.id);
-                      }}
                     >
                       Delete
                     </button>

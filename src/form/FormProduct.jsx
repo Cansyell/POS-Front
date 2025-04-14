@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import axios from 'axios';
 
-const FormProduct = ({ onClose, onProductAdded, categories }) => {
+const FormProduct = ({ onClose, onProductAdded, onProductEdited, categories, editProduct }) => {
+  const isEditMode = Boolean(editProduct);
   const [formData, setFormData] = useState({
     category_id: '',
     name: '',
@@ -12,8 +14,65 @@ const FormProduct = ({ onClose, onProductAdded, categories }) => {
   const [image, setImage] = useState(null);
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [apiErrors, setApiErrors] = useState({});
+  const [imagePreview, setImagePreview] = useState(null);
+
+  // Fetch product details if in edit mode
+  useEffect(() => {
+    if (editProduct) {
+      // If we already have the complete product data, use it
+      if (typeof editProduct === 'object' && editProduct.id) {
+        populateFormWithProductData(editProduct);
+      } else {
+        // Otherwise, fetch the product details
+        fetchProductDetails(editProduct);
+      }
+    }
+  }, [editProduct]);
+
+  // Fetch product details from API
+  const fetchProductDetails = async (productId) => {
+    setIsLoading(true);
+    try {
+      const response = await axios.get(`https://pos.cansyell.com/api/products/${productId}`);
+      let productData;
+      
+      // Handle different API response formats
+      if (response.data && response.data.data) {
+        productData = response.data.data;
+      } else if (response.data) {
+        productData = response.data;
+      }
+      
+      if (productData) {
+        populateFormWithProductData(productData);
+      }
+    } catch (error) {
+      setSubmitError('Failed to fetch product details');
+      console.error('Error fetching product:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fill form with product data
+  const populateFormWithProductData = (product) => {
+    setFormData({
+      category_id: product.category_id || '',
+      name: product.name || '',
+      description: product.description || '',
+      price: product.price || '',
+      is_active: product.is_active === true || product.is_active === 1 ? 1 : 0,
+      is_featured: product.is_featured === true || product.is_featured === 1 ? 1 : 0
+    });
+
+    // Set image preview if available
+    if (product.image_path) {
+      setImagePreview(`https://pos.cansyell.com/storage/${product.image_path}`);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -41,7 +100,15 @@ const FormProduct = ({ onClose, onProductAdded, categories }) => {
 
   const handleImageChange = (e) => {
     if (e.target.files && e.target.files[0]) {
-      setImage(e.target.files[0]);
+      const selectedImage = e.target.files[0];
+      setImage(selectedImage);
+      
+      // Create preview URL
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(selectedImage);
       
       // Clear validation error
       if (errors.image) {
@@ -105,10 +172,19 @@ const FormProduct = ({ onClose, onProductAdded, categories }) => {
         formDataToSend.append('image', image);
       }
       
-      const response = await fetch('https://pos.cansyell.com/api/products', {
-        method: 'POST',
+      // Determine API endpoint and method based on mode
+      const url = isEditMode 
+        ? `https://pos.cansyell.com/api/products/${editProduct.id}` 
+        : 'https://pos.cansyell.com/api/products';
+      
+      // For edit mode, we need to use PUT method
+      if (isEditMode) {
+        formDataToSend.append('_method', 'PUT'); // Laravel accepts _method for method spoofing
+      }
+      
+      const response = await fetch(url, {
+        method: 'POST', // Always POST when sending FormData, with _method for spoofing if needed
         body: formDataToSend,
-        // Don't set Content-Type header when using FormData
       });
       
       const result = await response.json();
@@ -119,16 +195,21 @@ const FormProduct = ({ onClose, onProductAdded, categories }) => {
           setApiErrors(result.errors);
           throw new Error('Please correct the validation errors');
         }
-        throw new Error(result.message || 'Failed to add product');
+        throw new Error(result.message || `Failed to ${isEditMode ? 'update' : 'add'} product`);
       }
       
+      // Handle success
       if (result.status && result.data) {
-        onProductAdded(result.data);
+        if (isEditMode) {
+          onProductEdited(result.data);
+        } else {
+          onProductAdded(result.data);
+        }
       } else {
-        throw new Error(result.message || 'Failed to add product');
+        throw new Error(result.message || `Failed to ${isEditMode ? 'update' : 'add'} product`);
       }
     } catch (err) {
-      setSubmitError(err.message || 'An error occurred while adding the product');
+      setSubmitError(err.message || `An error occurred while ${isEditMode ? 'updating' : 'adding'} the product`);
     } finally {
       setIsSubmitting(false);
     }
@@ -156,12 +237,22 @@ const FormProduct = ({ onClose, onProductAdded, categories }) => {
     return Boolean(errors[fieldName] || apiErrors[fieldName]);
   };
 
+  if (isLoading) {
+    return (
+      <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50">
+        <div className="relative bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6 text-center">
+          <div className="text-xl font-semibold">Loading product data...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50">
       <div className="relative bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4">
         <div className="flex items-center justify-between p-4 border-b">
           <h3 className="text-xl font-semibold text-gray-900">
-            Add New Product
+            {isEditMode ? 'Edit Product' : 'Add New Product'}
           </h3>
           <button 
             onClick={onClose}
@@ -273,6 +364,21 @@ const FormProduct = ({ onClose, onProductAdded, categories }) => {
             <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="image">
               Product Image
             </label>
+            
+            {/* Show current image preview if available */}
+            {imagePreview && (
+              <div className="mb-2">
+                <img 
+                  src={imagePreview} 
+                  alt="Product preview" 
+                  className="h-24 w-auto object-cover rounded" 
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  {isEditMode && !image ? "Current image shown. Upload a new one to replace it." : ""}
+                </p>
+              </div>
+            )}
+            
             <input
               id="image"
               name="image"
@@ -281,7 +387,10 @@ const FormProduct = ({ onClose, onProductAdded, categories }) => {
               onChange={handleImageChange}
               className={`shadow appearance-none border ${hasError('image') ? 'border-red-500' : 'border-gray-300'} rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline`}
             />
-            <p className="text-xs text-gray-500 mt-1">Max size: 2MB. Formats: jpeg, png, jpg, gif</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Max size: 2MB. Formats: jpeg, png, jpg, gif
+              {isEditMode && " (leave empty to keep current image)"}
+            </p>
             {getFieldError('image') && (
               <p className="text-red-500 text-xs italic mt-1">{getFieldError('image')}</p>
             )}
@@ -334,7 +443,7 @@ const FormProduct = ({ onClose, onProductAdded, categories }) => {
               className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline"
               disabled={isSubmitting}
             >
-              {isSubmitting ? 'Saving...' : 'Save Product'}
+              {isSubmitting ? (isEditMode ? 'Updating...' : 'Saving...') : (isEditMode ? 'Update Product' : 'Save Product')}
             </button>
           </div>
         </form>

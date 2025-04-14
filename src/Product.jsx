@@ -1,18 +1,28 @@
-import { useEffect, useState } from 'react';
-import './index.css';
-import FormProduct from './form/FormProduct';
+import { useState, useEffect } from 'react';
+import { useCart } from './component/CartProvider';
 
-const ProductCard = ({ product }) => {
+// Individual Product component
+const Product = ({ product }) => {
   const [quantity, setQuantity] = useState(1);
-
+  const [notes, setNotes] = useState('');
+  const [showNotes, setShowNotes] = useState(false);
+  const { addToCart } = useCart();
+  
+  // Return early if product is undefined
+  if (!product) {
+    return <div className="bg-white rounded-lg shadow-md overflow-hidden p-4">Loading product...</div>;
+  }
+  
   const increaseQuantity = () => setQuantity(quantity + 1);
   const decreaseQuantity = () => quantity > 1 && setQuantity(quantity - 1);
-
-  const addToCart = () => {
-    console.log(`Added ${quantity} of ${product.name} to cart`);
-    // dispatch to cart state here
+  
+  const handleAddToCart = () => {
+    addToCart(product, quantity, notes);
+    setQuantity(1);
+    setNotes('');
+    setShowNotes(false);
   };
-
+  
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden">
       <img
@@ -21,100 +31,125 @@ const ProductCard = ({ product }) => {
         className="w-full h-48 object-cover"
       />
       <div className="p-4">
-        <h3 className="text-lg font-semibold">{product.name}</h3>
+        <h3 className="text-lg font-semibold text-gray-900">{product.name}</h3>
         <p className="text-gray-600 mt-1">{product.description}</p>
-        <div className="mt-2 text-xl font-bold text-gray-900">
+        <p className="text-lg font-bold text-gray-900 mt-2">
           Rp {parseInt(product.price).toLocaleString('id-ID')}
-        </div>
-
-        <div className="mt-4 flex items-center">
+        </p>
+        
+        <div className="flex items-center mt-4">
           <div className="flex items-center border rounded-md">
-            <button onClick={decreaseQuantity} className="px-3 py-1 bg-gray-100 hover:bg-gray-200">-</button>
+            <button 
+              onClick={decreaseQuantity}
+              className="px-3 py-1 text-gray-600 hover:bg-gray-100"
+            >
+              -
+            </button>
             <span className="px-3 py-1">{quantity}</span>
-            <button onClick={increaseQuantity} className="px-3 py-1 bg-gray-100 hover:bg-gray-200">+</button>
+            <button 
+              onClick={increaseQuantity}
+              className="px-3 py-1 text-gray-600 hover:bg-gray-100"
+            >
+              +
+            </button>
           </div>
-          <button
-            onClick={addToCart}
-            className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          
+          <button 
+            onClick={() => setShowNotes(!showNotes)}
+            className="ml-2 text-blue-600 hover:text-blue-800 text-sm"
           >
-            Add to Cart
+            {showNotes ? 'Hide Notes' : 'Add Notes'}
           </button>
         </div>
-      </div>
-    </div>
-  );
-};
-
-const ProductsGrid = () => {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [categories, setCategories] = useState([]);
-
-  useEffect(() => {
-    // Fetch products
-    fetch('https://pos.cansyell.com/api/products')
-      .then(res => res.json())
-      .then(data => {
-        if (data.status && Array.isArray(data.data)) {
-          setProducts(data.data);
-        }
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Failed to fetch products:", err);
-        setLoading(false);
-      });
-    
-    // Fetch categories for the form
-    fetch('https://pos.cansyell.com/api/categories')
-      .then(res => res.json())
-      .then(data => {
-        if (data.status && Array.isArray(data.data)) {
-          setCategories(data.data);
-        }
-      })
-      .catch(err => {
-        console.error("Failed to fetch categories:", err);
-      });
-  }, []);
-
-  const handleAddProduct = (newProduct) => {
-    setProducts([...products, newProduct]);
-    setShowForm(false);
-  };
-
-  return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Our Products</h2>
+        
+        {showNotes && (
+          <div className="mt-3">
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Add special instructions..."
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              rows="2"
+            />
+          </div>
+        )}
+        
         <button 
-          onClick={() => setShowForm(true)}
-          className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+          onClick={handleAddToCart}
+          className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md"
         >
-          Add Product
+          Add to Cart
         </button>
       </div>
-
-      {showForm && (
-        <FormProduct 
-          onClose={() => setShowForm(false)} 
-          onProductAdded={handleAddProduct}
-          categories={categories}
-        />
-      )}
-
-      {loading ? (
-        <p>Loading...</p>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {products.map(product => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
-      )}
     </div>
   );
 };
 
-export default ProductsGrid;
+// Main component that fetches and displays products
+const ProductList = () => {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    // Function to fetch products
+    const fetchProducts = async () => {
+      try {
+        console.log("Fetching products...");
+        const response = await fetch('https://pos.cansyell.com/api/products');
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log("Products fetched:", data);
+        
+        // Check the structure of the response
+        if (data && Array.isArray(data.data)) {
+          // If the products are in a 'data' property
+          setProducts(data.data);
+        } else if (Array.isArray(data)) {
+          // If the response directly contains the products array
+          setProducts(data);
+        } else {
+          console.error("Unexpected data format:", data);
+          setError("Unexpected data format from API");
+        }
+        
+        setLoading(false);
+      } catch (err) {
+        console.error("Error fetching products:", err);
+        setError(err.message);
+        setLoading(false);
+      }
+    };
+
+    fetchProducts();
+  }, []);
+
+  if (loading) {
+    return <div className="p-4 text-center">Loading products...</div>;
+  }
+
+  if (error) {
+    return <div className="p-4 text-center text-red-500">Error loading products: {error}</div>;
+  }
+
+  if (!products || products.length === 0) {
+    return <div className="p-4 text-center">No products found</div>;
+  }
+
+  return (
+    <div className="container mx-auto p-4">
+      <h2 className="text-2xl font-bold mb-4">Products</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {products.map((product, index) => (
+          <Product key={product.id || index} product={product} />
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default ProductList;
